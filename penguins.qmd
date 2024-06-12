@@ -1,0 +1,123 @@
+---
+title: "penguins"
+format: html
+---
+```{r}
+options(scipen=999)
+```
+
+
+```{r}
+library(tidymodels)
+library(tidyverse)
+```
+
+## Explorar la data
+```{r}
+penguins <- palmerpenguins::penguins
+
+
+penguins |> 
+  filter(!is.na(sex)) |> 
+  ggplot(aes(x = flipper_length_mm, y = bill_length_mm, color = sex, size = body_mass_g)) +
+  geom_point(alpha = 0.7) +
+  facet_wrap(~species)
+
+
+```
+
+## Construir el modelo
+```{r}
+penguins_df <- penguins |> 
+  filter(!is.na(sex)) |> 
+  select(-year, -island)
+```
+
+```{r}
+set.seed(123)
+penguins_split <- penguins_df |>
+  initial_split(prop = 0.80,strata = sex)
+
+penguin_train <- training(penguins_split)  
+penguin_test <- testing(penguins_split)
+
+set.seed(234)
+penguin_boot <- bootstraps(penguin_train)
+
+```
+
+```{r}
+glm_spec <- logistic_reg() |> 
+  set_engine("glm")
+
+rf_spec <- rand_forest() |> 
+  set_mode("classification") |> 
+  set_engine("ranger")
+```
+
+```{r}
+penguin_workflow <- workflow() |> 
+  add_formula(sex ~ .)
+```
+
+```{r}
+glm_rs <- penguin_workflow |> 
+  add_model(glm_spec) |> 
+  fit_resamples(
+    resamples = penguin_boot,
+    control = control_resamples(save_pred = TRUE, verbose = TRUE)
+  )
+
+rf_rs <- penguin_workflow |> 
+  add_model(rf_spec) |> 
+  fit_resamples(
+    resamples = penguin_boot,
+    control = control_resamples(save_pred = TRUE, verbose = TRUE)
+  )
+```
+
+## Validar el modelo
+```{r}
+collect_metrics(rf_rs)
+```
+```{r}
+collect_metrics(glm_rs)
+```
+
+```{r}
+glm_rs |> conf_mat_resampled()
+```
+
+```{r}
+glm_rs |> 
+  collect_predictions() |> 
+  group_by(id) |> 
+  roc_curve(sex, .pred_female) |> 
+  ggplot(aes(1 - specificity, sensitivity, color = id)) +
+  geom_abline(lty = 2, color = "gray80", size = 1.5) +
+  geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2) +
+  coord_equal()
+```
+```{r}
+penguin_final <- penguin_workflow |> 
+  add_model(glm_spec) |> 
+  last_fit(penguins_split)
+
+penguin_final |> 
+  collect_metrics()
+```
+
+```{r}
+penguin_final |> 
+  collect_predictions() |> 
+  conf_mat(sex, .pred_class
+           )
+```
+
+```{r}
+penguin_final$.workflow[[1]] |> 
+  tidy(exponentiate = TRUE) |> 
+  arrange(estimate)
+
+```
+
